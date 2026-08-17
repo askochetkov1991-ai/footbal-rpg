@@ -23,7 +23,7 @@ export function LandingPage() {
         </Card>
         <Card>
           <h2 className="font-semibold">Ивент</h2>
-          <p className="mt-1 text-sm text-gray-400">Телефон болельщика. Ник, код комнаты, live-лобби.</p>
+          <p className="mt-1 text-sm text-gray-400">Телефон болельщика. Ник, код, драфт 90 сек по клику ведущего.</p>
           <Link to="/event">
             <Button className="mt-4" full>
               Войти в ивент
@@ -32,7 +32,7 @@ export function LandingPage() {
         </Card>
         <Card>
           <h2 className="font-semibold">Ведущий</h2>
-          <p className="mt-1 text-sm text-gray-400">Экран на ТВ. Код, QR и счётчик ников. Драфт — в P2.</p>
+          <p className="mt-1 text-sm text-gray-400">Экран на ТВ. Код, QR, счётчик и старт драфта. Матч — в P3.</p>
           <Link to="/host">
             <Button className="mt-4" variant="secondary" full>
               Открыть пульт

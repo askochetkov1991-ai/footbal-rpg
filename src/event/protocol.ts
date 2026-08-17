@@ -1,31 +1,72 @@
+import { POSITIONS, type Position, type Squad } from "../types";
+
 export const ROOM_CODE_LENGTH = 4;
 export const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const MAX_EVENT_FANS = 80;
 export const NICK_MAX_LENGTH = 20;
 export const PRESENCE_GRACE_MS = 10_000;
 export const IDENTIFY_TIMEOUT_MS = 8_000;
+export const DRAFT_DURATION_MS = 90_000;
+export const EVENT_BUDGET = 20;
+
+export type EventPhase = "lobby" | "draft" | "ready";
+export type EliminatedReason = "no-squad";
 
 export type EventFan = {
   id: string;
   nick: string;
   connected: boolean;
+  slotsFilled: number;
+  squadComplete: boolean;
+};
+
+export type HostYou = { role: "host" };
+export type FanYou = {
+  role: "fan";
+  playerId: string;
+  budget: number;
+  squad: Squad;
 };
 
 export type ClaimHostMessage = { type: "claim-host"; token: string };
 export type JoinMessage = { type: "join"; playerId: string; nick: string };
 export type LeaveMessage = { type: "leave" };
+export type StartDraftMessage = { type: "start-draft" };
+export type PickMessage = { type: "pick"; playerId: string };
+export type UnpickMessage = { type: "unpick"; position: Position };
 
-export type ClientMessage = ClaimHostMessage | JoinMessage | LeaveMessage;
+export type ClientMessage =
+  | ClaimHostMessage
+  | JoinMessage
+  | LeaveMessage
+  | StartDraftMessage
+  | PickMessage
+  | UnpickMessage;
 
 export type SnapshotMessage = {
   type: "snapshot";
   code: string;
   hasHost: boolean;
+  phase: EventPhase;
+  round: number;
+  draftEndsAt: number | null;
+  serverNow: number;
+  eliminatedCount: number;
   fans: EventFan[];
-  you: { role: "host" } | { role: "fan"; playerId: string };
+  you: HostYou | FanYou;
 };
 
-export type ErrorCode = "NO_HOST" | "ROOM_FULL" | "BAD_NICK" | "HOST_TAKEN" | "BAD_MESSAGE";
+export type ErrorCode =
+  | "NO_HOST"
+  | "ROOM_FULL"
+  | "BAD_NICK"
+  | "HOST_TAKEN"
+  | "BAD_MESSAGE"
+  | "NOT_HOST"
+  | "NOT_DRAFT"
+  | "BAD_PICK"
+  | "WRONG_PHASE"
+  | "ELIMINATED";
 
 export type ErrorMessage = {
   type: "error";
@@ -33,7 +74,12 @@ export type ErrorMessage = {
   message: string;
 };
 
-export type ServerMessage = SnapshotMessage | ErrorMessage;
+export type EliminatedMessage = {
+  type: "eliminated";
+  reason: EliminatedReason;
+};
+
+export type ServerMessage = SnapshotMessage | ErrorMessage | EliminatedMessage;
 
 export function generateRoomCode(random: () => number = Math.random): string {
   return Array.from({ length: ROOM_CODE_LENGTH }, () => {
@@ -63,6 +109,10 @@ export function normalizeNick(raw: string): string {
   return raw.replace(/\s+/g, " ").trim().slice(0, NICK_MAX_LENGTH);
 }
 
+function isPosition(value: unknown): value is Position {
+  return typeof value === "string" && (POSITIONS as string[]).includes(value);
+}
+
 export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | null {
   if (typeof raw !== "string") return null;
   try {
@@ -80,6 +130,13 @@ export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | n
       return { type: "join", playerId: data.playerId, nick: data.nick };
     }
     if (data.type === "leave") return { type: "leave" };
+    if (data.type === "start-draft") return { type: "start-draft" };
+    if (data.type === "pick" && typeof data.playerId === "string" && data.playerId.length > 0) {
+      return { type: "pick", playerId: data.playerId };
+    }
+    if (data.type === "unpick" && isPosition(data.position)) {
+      return { type: "unpick", position: data.position };
+    }
     return null;
   } catch {
     return null;
@@ -95,6 +152,9 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     }
     if (data.type === "error" && typeof data.code === "string" && typeof data.message === "string") {
       return data as ErrorMessage;
+    }
+    if (data.type === "eliminated" && data.reason === "no-squad") {
+      return { type: "eliminated", reason: "no-squad" };
     }
     return null;
   } catch {

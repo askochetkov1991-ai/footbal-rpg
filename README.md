@@ -2,7 +2,7 @@
 
 Браузерная футбольная RPG (одиночная карьера) и турнир болельщиков для живых ивентов на 50+ телефонов. Нативное приложение и PWA **не делаем** — клиент всегда обычная вкладка Safari/Chrome.
 
-**Сейчас:** P1 закрыт (realtime-лобби `/event` + `/host`). **Дальше:** P2 — timed draft. Статус фаз: [ROADMAP.md](ROADMAP.md).
+**Сейчас:** P2 закрыт (timed draft). **Дальше:** P3 — sync match. Статус фаз: [ROADMAP.md](ROADMAP.md).
 
 Репозиторий: https://github.com/askochetkov1991-ai/footbal-rpg  
 Прототип, с которого сняты данные: https://bright-cucurucho-96af60.netlify.app/
@@ -16,8 +16,8 @@
 | Режим | URL | Кто | Статус |
 |---|---|---|---|
 | Карьера (тренировка) | `/play` | Один игрок | Работает, client-only |
-| Ивент | `/event` | Болельщик с телефона | Live-лобби: ник + код |
-| Ведущий | `/host` | ТВ / ноутбук | Код, QR, счётчик ников |
+| Ивент | `/event` | Болельщик с телефона | Лобби + драфт 90 сек |
+| Ведущий | `/host` | ТВ / ноутбук | Код, QR, старт драфта |
 
 Карьеру **не вырезаем** и **не тащим в мультиплеер**. Турнир — отдельный поток.
 
@@ -72,13 +72,14 @@ src/
     season.ts             # таблица карьеры, награды, повышение
   store/gameStore.ts      # Zustand + localStorage key football-rpg-voice-save
   event/
-    protocol.ts           # сообщения лобби, код комнаты, лимит 80
+    protocol.ts           # лобби + драфт, код комнаты, лимит 80
+    draft.ts              # рынок, бюджет 20, 4 слота, pick/unpick
     useEventSocket.ts     # PartySocket + snapshot/error
   pages/                  # карьера + LandingPage
   pages/event/            # EventJoinPage, HostPage
-  components/             # layout, ui, player, match, league, event/QrCode
+  components/             # layout, ui, player, match, league, event/QrCode, DraftBoard
 party/
-  server.ts               # комната: claim-host, join, presence
+  server.ts               # комната: claim-host, join, start-draft, pick, DQ
 ```
 
 Карьера переключается вкладками через `activeTab` в store, не через роутер. Роутер только для `/`, `/play`, `/event`, `/host`.
@@ -119,4 +120,4 @@ party/
 1. Прочитай этот файл и [ROADMAP.md](ROADMAP.md).
 2. Текущая фаза указана в начале ROADMAP.
 3. Карьеру не ломай, пока задача явно не про неё.
-4. Ивент: лобби на PartyKit уже есть. Драфт и матч ещё не синхронизируются.
+4. Ивент: лобби и timed draft на PartyKit уже есть. Матч ещё не синхронизируется (P3).

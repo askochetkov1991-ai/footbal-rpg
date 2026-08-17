@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { DraftBoard, LockedSquad } from "../../components/event/DraftBoard";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { isSquadComplete } from "../../event/draft";
+import { useCountdown } from "../../event/useCountdown";
 import { useEventSocket } from "../../event/useEventSocket";
 import {
   generateToken,
@@ -9,6 +12,9 @@ import {
   normalizeCode,
   normalizeNick,
   ROOM_CODE_LENGTH,
+  type EventPhase,
+  type FanYou,
+  type SnapshotMessage,
 } from "../../event/protocol";
 import {
   clearFanSession,
@@ -127,6 +133,23 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
   const [online, setOnline] = useState(0);
   const [hasHost, setHasHost] = useState(false);
   const [left, setLeft] = useState(false);
+  const [eliminated, setEliminated] = useState(false);
+  const [phase, setPhase] = useState<EventPhase>("lobby");
+  const [you, setYou] = useState<FanYou | null>(null);
+  const [draftEndsAt, setDraftEndsAt] = useState<number | null>(null);
+  const [serverNow, setServerNow] = useState<number | null>(null);
+
+  const applySnapshot = (message: SnapshotMessage) => {
+    setOnline(message.fans.filter((fan) => fan.connected).length);
+    setHasHost(message.hasHost);
+    setPhase(message.phase);
+    setDraftEndsAt(message.draftEndsAt);
+    setServerNow(message.serverNow);
+    if (message.you.role === "fan") setYou(message.you);
+    if (message.phase === "draft") setStatus("Набери 4 слота до конца таймера");
+    else if (message.phase === "ready") setStatus("Состав зафиксирован. Ждём матч");
+    else setStatus(message.hasHost ? "Ждём старт от ведущего" : "Ведущий переподключается");
+  };
 
   const { send } = useEventSocket({
     code: session.code,
@@ -136,16 +159,20 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
       setError(null);
     },
     onClose() {
-      if (left) return;
+      if (left || eliminated) return;
       setHasHost(false);
       setStatus("Нет связи — переподключаемся");
     },
     onMessage(message) {
       if (left) return;
+      if (message.type === "eliminated" || (message.type === "error" && message.code === "ELIMINATED")) {
+        setEliminated(true);
+        setError(null);
+        return;
+      }
       if (message.type === "snapshot") {
-        setOnline(message.fans.filter((fan) => fan.connected).length);
-        setHasHost(message.hasHost);
-        setStatus(message.hasHost ? "Ждём старт от ведущего" : "Ведущий переподключается");
+        setError(null);
+        applySnapshot(message);
         return;
       }
       setError(message.message);
@@ -154,6 +181,8 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
       }
     },
   });
+
+  const remainingMs = useCountdown(phase === "draft" ? draftEndsAt : null, serverNow);
 
   const leave = () => {
     setLeft(true);
@@ -166,6 +195,51 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
     if (!hasHost) return status;
     return `${status}. Сейчас ${online} ${pluralPeople(online)}.`;
   }, [error, hasHost, online, status]);
+
+  if (eliminated) {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-2xl flex-col bg-[#0B0F19] px-4 py-8 text-white">
+        <p className="text-xs uppercase tracking-wide text-red-400">Дисквалификация</p>
+        <h1 className="mt-1 text-2xl font-bold">Не успел набрать состав</h1>
+        <Card className="mt-6 space-y-3">
+          <p className="text-lg font-semibold">{session.nick}</p>
+          <p className="text-sm text-gray-300">
+            К концу драфта нужны GK, DEF, MID и FWD. Без четвёрки ты выбываешь из турнира.
+          </p>
+          <Button variant="secondary" full onClick={leave}>
+            Выйти
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (phase === "draft" && you) {
+    return (
+      <DraftBoard
+        nick={session.nick}
+        code={session.code}
+        budget={you.budget}
+        squad={you.squad}
+        remainingMs={remainingMs ?? 0}
+        onPick={(playerId) => send({ type: "pick", playerId })}
+        onUnpick={(position) => send({ type: "unpick", position })}
+        onLeave={leave}
+      />
+    );
+  }
+
+  if (phase === "ready" && you) {
+    return (
+      <LockedSquad
+        nick={session.nick}
+        code={session.code}
+        squad={you.squad}
+        lateJoin={!isSquadComplete(you.squad)}
+        onLeave={leave}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col bg-[#0B0F19] px-4 py-8 text-white">
