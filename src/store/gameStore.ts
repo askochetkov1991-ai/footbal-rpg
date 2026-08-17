@@ -7,7 +7,6 @@ import {
   emptyStandings,
   isSeasonOver,
   recordPlayerMatch,
-  sortStandings,
   summarizeSeason,
 } from "../engine/season";
 import {

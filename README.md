@@ -2,7 +2,7 @@
 
 Браузерная футбольная RPG (одиночная карьера) и турнир болельщиков для живых ивентов на 50+ телефонов. Нативное приложение и PWA **не делаем** — клиент всегда обычная вкладка Safari/Chrome.
 
-**Сейчас:** P0 закрыт (карьера `/play` + заглушки `/event` и `/host`). **Дальше:** P1 — realtime-комната. Статус фаз: [ROADMAP.md](ROADMAP.md).
+**Сейчас:** P1 закрыт (realtime-лобби `/event` + `/host`). **Дальше:** P2 — timed draft. Статус фаз: [ROADMAP.md](ROADMAP.md).
 
 Репозиторий: https://github.com/askochetkov1991-ai/footbal-rpg  
 Прототип, с которого сняты данные: https://bright-cucurucho-96af60.netlify.app/
@@ -16,14 +16,14 @@
 | Режим | URL | Кто | Статус |
 |---|---|---|---|
 | Карьера (тренировка) | `/play` | Один игрок | Работает, client-only |
-| Ивент | `/event` | Болельщик с телефона | Заглушка: ник + код |
-| Ведущий | `/host` | ТВ / ноутбук | Заглушка: код, кнопки старта |
+| Ивент | `/event` | Болельщик с телефона | Live-лобби: ник + код |
+| Ведущий | `/host` | ТВ / ноутбук | Код, QR, счётчик ников |
 
 Карьеру **не вырезаем** и **не тащим в мультиплеер**. Турнир — отдельный поток.
 
 ### Луп ивента (целевой)
 
-1. Хост открывает `/host`, на ТВ код (позже QR).
+1. Хост открывает `/host`, на ТВ код и QR.
 2. Болельщики заходят на `/event` с ником (без аккаунта).
 3. Хост **кликом** стартует драфт (~90 сек): 4 слота, бюджет 20. Каталог общий, **дубликаты можно**. Не успел набрать 4 слота → **DQ** из турнира.
 4. Хост **кликом** стартует матч: 3 одинаковые ситуации у всех, ~15 сек на выбор. Не успел ответить → **0:3** на недоигранное, в турнире остаёшься.
@@ -36,9 +36,9 @@
 
 ## Стек
 
-React 19 · TypeScript · Vite 6 · Tailwind CSS 4 · Zustand (persist) · React Router 7 · clsx
+React 19 · TypeScript · Vite 6 · Tailwind CSS 4 · Zustand (persist) · React Router 7 · clsx · PartyKit (Durable Object на комнату)
 
-Для ивента (P1+) нужен realtime-сервер: PartyKit или Cloudflare Durable Object. Счёт, D6 и lock состава — **только на сервере**. Netlify Drop для турнира не хватит.
+Счёт, D6 и lock состава — **только на сервере** (с P3). Netlify Drop для турнира не хватит.
 
 Нужен Node.js 22+.
 
@@ -47,7 +47,12 @@ npm install
 npm run dev
 ```
 
-http://localhost:5173
+Клиент: http://localhost:5173  
+Комната: ws://localhost:1999
+
+С телефона в той же Wi-Fi: открой `http://<IP-ноутбука>:5173` — сокет сам пойдёт на тот же хост, порт 1999.
+
+После деплоя PartyKit задай `VITE_PARTYKIT_HOST` (см. `.env.example`) и `npm run deploy:party`.
 
 ---
 
@@ -66,9 +71,14 @@ src/
     match.ts              # ситуации, верный выбор vs кубики
     season.ts             # таблица карьеры, награды, повышение
   store/gameStore.ts      # Zustand + localStorage key football-rpg-voice-save
+  event/
+    protocol.ts           # сообщения лобби, код комнаты, лимит 80
+    useEventSocket.ts     # PartySocket + snapshot/error
   pages/                  # карьера + LandingPage
-  pages/event/            # EventJoinPage, HostPage (заглушки)
-  components/             # layout, ui, player, match, league
+  pages/event/            # EventJoinPage, HostPage
+  components/             # layout, ui, player, match, league, event/QrCode
+party/
+  server.ts               # комната: claim-host, join, presence
 ```
 
 Карьера переключается вкладками через `activeTab` в store, не через роутер. Роутер только для `/`, `/play`, `/event`, `/host`.
@@ -109,4 +119,4 @@ src/
 1. Прочитай этот файл и [ROADMAP.md](ROADMAP.md).
 2. Текущая фаза указана в начале ROADMAP.
 3. Карьеру не ломай, пока задача явно не про неё.
-4. Ивент ещё без бэкенда: кнопки хоста локальные.
+4. Ивент: лобби на PartyKit уже есть. Драфт и матч ещё не синхронизируются.

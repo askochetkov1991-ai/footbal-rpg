@@ -3,3 +3,5 @@ dist
 dist-netlify.zip
 .DS_Store
 *.local
+.partykit
+*.tsbuildinfo

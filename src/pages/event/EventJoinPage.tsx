@@ -1,11 +1,68 @@
-import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { useEventSocket } from "../../event/useEventSocket";
+import {
+  generateToken,
+  isValidCode,
+  normalizeCode,
+  normalizeNick,
+  ROOM_CODE_LENGTH,
+} from "../../event/protocol";
+import {
+  clearFanSession,
+  loadFanSession,
+  saveFanSession,
+  type FanSession,
+} from "../../event/session";
 
 export function EventJoinPage() {
-  const [nick, setNick] = useState("");
-  const [code, setCode] = useState("");
+  const [params] = useSearchParams();
+  const codeFromUrl = normalizeCode(params.get("code") ?? "");
+  const existing = loadFanSession();
+  const [session, setSession] = useState<FanSession | null>(() => {
+    if (existing && isValidCode(existing.code)) return existing;
+    return null;
+  });
+
+  if (session) {
+    return (
+      <FanLobby
+        session={session}
+        onLeave={() => {
+          clearFanSession();
+          setSession(null);
+        }}
+      />
+    );
+  }
+
+  return (
+    <JoinForm
+      initialCode={isValidCode(codeFromUrl) ? codeFromUrl : existing?.code ?? ""}
+      initialNick={existing?.nick ?? ""}
+      onJoin={(next) => {
+        saveFanSession(next);
+        setSession(next);
+      }}
+    />
+  );
+}
+
+function JoinForm({
+  initialCode,
+  initialNick,
+  onJoin,
+}: {
+  initialCode: string;
+  initialNick: string;
+  onJoin: (session: FanSession) => void;
+}) {
+  const [nick, setNick] = useState(initialNick);
+  const [code, setCode] = useState(initialCode);
+  const ready = Boolean(normalizeNick(nick) && isValidCode(normalizeCode(code)));
+
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col bg-[#0B0F19] px-4 py-8 text-white">
       <p className="text-xs uppercase tracking-wide text-gray-400">Турнир болельщиков</p>
@@ -18,28 +75,123 @@ export function EventJoinPage() {
             onChange={(e) => setNick(e.target.value)}
             className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-white"
             placeholder="Как вас представить"
+            maxLength={20}
+            autoComplete="nickname"
           />
         </label>
         <label className="block text-sm text-gray-300">
           Код комнаты
           <input
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onChange={(e) => setCode(normalizeCode(e.target.value))}
             className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-white tracking-widest"
             placeholder="ABCD"
-            maxLength={4}
+            maxLength={ROOM_CODE_LENGTH}
+            autoCapitalize="characters"
+            autoCorrect="off"
           />
         </label>
-        <Button full disabled={!nick.trim() || code.length < 4}>
-          Войти (P1)
+        <Button
+          full
+          disabled={!ready}
+          onClick={() => {
+            const nextNick = normalizeNick(nick);
+            const nextCode = normalizeCode(code);
+            if (!nextNick || !isValidCode(nextCode)) return;
+            onJoin({
+              code: nextCode,
+              nick: nextNick,
+              playerId: existingPlayerId(nextCode) ?? generateToken(),
+            });
+          }}
+        >
+          Войти
         </Button>
-        <p className="text-xs text-gray-500">
-          Мультиплеер подключается в P1. Сейчас это экран-заглушка: ник и код уже есть, комнаты ещё нет.
-        </p>
+        <p className="text-xs text-gray-500">Без аккаунта. Если ведущий ещё не открыл пульт — комната не найдётся.</p>
       </Card>
       <Link to="/" className="mt-6 text-center text-sm text-gray-400 underline">
         На главную
       </Link>
     </div>
   );
+}
+
+function existingPlayerId(code: string): string | null {
+  const stored = loadFanSession();
+  return stored?.code === code ? stored.playerId : null;
+}
+
+function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => void }) {
+  const [status, setStatus] = useState("Подключаемся…");
+  const [error, setError] = useState<string | null>(null);
+  const [online, setOnline] = useState(0);
+  const [hasHost, setHasHost] = useState(false);
+  const [left, setLeft] = useState(false);
+
+  const { send } = useEventSocket({
+    code: session.code,
+    hello: { type: "join", playerId: session.playerId, nick: session.nick },
+    onOpen() {
+      if (left) return;
+      setError(null);
+    },
+    onClose() {
+      if (left) return;
+      setHasHost(false);
+      setStatus("Нет связи — переподключаемся");
+    },
+    onMessage(message) {
+      if (left) return;
+      if (message.type === "snapshot") {
+        setOnline(message.fans.filter((fan) => fan.connected).length);
+        setHasHost(message.hasHost);
+        setStatus(message.hasHost ? "Ждём старт от ведущего" : "Ведущий переподключается");
+        return;
+      }
+      setError(message.message);
+      if (message.code === "NO_HOST" || message.code === "ROOM_FULL") {
+        setTimeout(() => onLeave(), 1200);
+      }
+    },
+  });
+
+  const leave = () => {
+    setLeft(true);
+    send({ type: "leave" });
+    onLeave();
+  };
+
+  const subtitle = useMemo(() => {
+    if (error) return error;
+    if (!hasHost) return status;
+    return `${status}. Сейчас ${online} ${pluralPeople(online)}.`;
+  }, [error, hasHost, online, status]);
+
+  return (
+    <div className="mx-auto flex min-h-dvh max-w-2xl flex-col bg-[#0B0F19] px-4 py-8 text-white">
+      <p className="text-xs uppercase tracking-wide text-gray-400">Турнир болельщиков</p>
+      <h1 className="mt-1 text-2xl font-bold">Ты в лобби</h1>
+      <Card className="mt-6 space-y-3">
+        <p className="text-lg font-semibold">{session.nick}</p>
+        <p className="text-sm text-gray-400">
+          Комната <span className="tracking-widest text-orange-400">{session.code}</span>
+        </p>
+        <p className={`text-sm ${error ? "text-amber-400" : "text-gray-300"}`}>{subtitle}</p>
+        <Button variant="secondary" full onClick={leave}>
+          Выйти
+        </Button>
+      </Card>
+      <Link to="/" className="mt-6 text-center text-sm text-gray-400 underline">
+        На главную
+      </Link>
+    </div>
+  );
+}
+
+function pluralPeople(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "человек";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "человека";
+  return "человек";
 }
