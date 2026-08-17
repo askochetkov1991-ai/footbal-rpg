@@ -2,7 +2,7 @@
 
 Браузерная футбольная RPG (одиночная карьера) и турнир болельщиков для живых ивентов на 50+ телефонов. Нативное приложение и PWA **не делаем** — клиент всегда обычная вкладка Safari/Chrome.
 
-**Сейчас:** P2 закрыт (timed draft). **Дальше:** P3 — sync match. Статус фаз: [ROADMAP.md](ROADMAP.md).
+**Сейчас:** P3 закрыт (sync match). **Дальше:** P4 — board + podium. Статус фаз: [ROADMAP.md](ROADMAP.md).
 
 Репозиторий: https://github.com/askochetkov1991-ai/footbal-rpg  
 Прототип, с которого сняты данные: https://bright-cucurucho-96af60.netlify.app/
@@ -16,8 +16,8 @@
 | Режим | URL | Кто | Статус |
 |---|---|---|---|
 | Карьера (тренировка) | `/play` | Один игрок | Работает, client-only |
-| Ивент | `/event` | Болельщик с телефона | Лобби + драфт 90 сек |
-| Ведущий | `/host` | ТВ / ноутбук | Код, QR, старт драфта |
+| Ивент | `/event` | Болельщик с телефона | Лобби, драфт, матч |
+| Ведущий | `/host` | ТВ / ноутбук | Код, QR, старт драфта и матча |
 
 Карьеру **не вырезаем** и **не тащим в мультиплеер**. Турнир — отдельный поток.
 
@@ -38,7 +38,7 @@
 
 React 19 · TypeScript · Vite 6 · Tailwind CSS 4 · Zustand (persist) · React Router 7 · clsx · PartyKit (Durable Object на комнату)
 
-Счёт, D6 и lock состава — **только на сервере** (с P3). Netlify Drop для турнира не хватит.
+Счёт, D6 и lock состава — **только на сервере**. Netlify Drop для турнира не хватит.
 
 Нужен Node.js 22+.
 
@@ -72,14 +72,15 @@ src/
     season.ts             # таблица карьеры, награды, повышение
   store/gameStore.ts      # Zustand + localStorage key football-rpg-voice-save
   event/
-    protocol.ts           # лобби + драфт, код комнаты, лимит 80
+    protocol.ts           # лобби + драфт + матч, код комнаты, лимит 80
     draft.ts              # рынок, бюджет 20, 4 слота, pick/unpick
+    match.ts              # общие ситуации, таймаут 0:3
     useEventSocket.ts     # PartySocket + snapshot/error
   pages/                  # карьера + LandingPage
   pages/event/            # EventJoinPage, HostPage
-  components/             # layout, ui, player, match, league, event/QrCode, DraftBoard
+  components/             # layout, ui, player, match, league, event/QrCode, DraftBoard, MatchPlay
 party/
-  server.ts               # комната: claim-host, join, start-draft, pick, DQ
+  server.ts               # комната: claim-host, join, start-draft, pick, start-match, answer, DQ
 ```
 
 Карьера переключается вкладками через `activeTab` в store, не через роутер. Роутер только для `/`, `/play`, `/event`, `/host`.
@@ -120,4 +121,4 @@ party/
 1. Прочитай этот файл и [ROADMAP.md](ROADMAP.md).
 2. Текущая фаза указана в начале ROADMAP.
 3. Карьеру не ломай, пока задача явно не про неё.
-4. Ивент: лобби и timed draft на PartyKit уже есть. Матч ещё не синхронизируется (P3).
+4. Ивент: лобби, timed draft и sync match на PartyKit уже есть. Лидерборд на ТВ — P4.

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { DraftBoard, LockedSquad } from "../../components/event/DraftBoard";
+import { MatchPlay } from "../../components/event/MatchPlay";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { isSquadComplete } from "../../event/draft";
@@ -14,6 +15,7 @@ import {
   ROOM_CODE_LENGTH,
   type EventPhase,
   type FanYou,
+  type SharedMatch,
   type SnapshotMessage,
 } from "../../event/protocol";
 import {
@@ -138,6 +140,7 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
   const [you, setYou] = useState<FanYou | null>(null);
   const [draftEndsAt, setDraftEndsAt] = useState<number | null>(null);
   const [serverNow, setServerNow] = useState<number | null>(null);
+  const [match, setMatch] = useState<SharedMatch | null>(null);
 
   const applySnapshot = (message: SnapshotMessage) => {
     setOnline(message.fans.filter((fan) => fan.connected).length);
@@ -145,9 +148,13 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
     setPhase(message.phase);
     setDraftEndsAt(message.draftEndsAt);
     setServerNow(message.serverNow);
+    setMatch(message.match);
     if (message.you.role === "fan") setYou(message.you);
     if (message.phase === "draft") setStatus("Набери 4 слота до конца таймера");
     else if (message.phase === "ready") setStatus("Состав зафиксирован. Ждём матч");
+    else if (message.phase === "match") setStatus("Выбери действие");
+    else if (message.phase === "result") setStatus("Результат ситуации");
+    else if (message.phase === "match_over") setStatus("Матч закончен. Ждём новый драфт");
     else setStatus(message.hasHost ? "Ждём старт от ведущего" : "Ведущий переподключается");
   };
 
@@ -182,7 +189,16 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
     },
   });
 
-  const remainingMs = useCountdown(phase === "draft" ? draftEndsAt : null, serverNow);
+  const remainingMs = useCountdown(
+    phase === "draft"
+      ? draftEndsAt
+      : phase === "match"
+        ? (match?.choiceEndsAt ?? null)
+        : phase === "result"
+          ? (match?.resultEndsAt ?? null)
+          : null,
+    serverNow,
+  );
 
   const leave = () => {
     setLeft(true);
@@ -211,6 +227,21 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
           </Button>
         </Card>
       </div>
+    );
+  }
+
+  if ((phase === "match" || phase === "result" || phase === "match_over") && you && match) {
+    return (
+      <MatchPlay
+        nick={session.nick}
+        code={session.code}
+        you={you}
+        match={match}
+        remainingMs={remainingMs}
+        phase={phase}
+        onAnswer={(choiceIndex) => send({ type: "answer", choiceIndex })}
+        onLeave={leave}
+      />
     );
   }
 

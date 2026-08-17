@@ -1,4 +1,4 @@
-import { POSITIONS, type Position, type Squad } from "../types";
+import { POSITIONS, type Position, type SituationOutcome, type Squad } from "../types";
 
 export const ROOM_CODE_LENGTH = 4;
 export const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -7,10 +7,28 @@ export const NICK_MAX_LENGTH = 20;
 export const PRESENCE_GRACE_MS = 10_000;
 export const IDENTIFY_TIMEOUT_MS = 8_000;
 export const DRAFT_DURATION_MS = 90_000;
+export const SITUATION_DURATION_MS = 15_000;
+export const RESULT_PAUSE_MS = 5_000;
 export const EVENT_BUDGET = 20;
 
-export type EventPhase = "lobby" | "draft" | "ready";
+export type EventPhase = "lobby" | "draft" | "ready" | "match" | "result" | "match_over";
 export type EliminatedReason = "no-squad";
+
+export type PublicSituation = {
+  id: string;
+  title: string;
+  description: string;
+  choices: string[];
+};
+
+export type SharedMatch = {
+  opponentName: string;
+  situationIndex: number;
+  situationCount: number;
+  situation: PublicSituation | null;
+  choiceEndsAt: number | null;
+  resultEndsAt: number | null;
+};
 
 export type EventFan = {
   id: string;
@@ -18,6 +36,11 @@ export type EventFan = {
   connected: boolean;
   slotsFilled: number;
   squadComplete: boolean;
+  inMatch: boolean;
+  sittingOut: boolean;
+  answered: boolean;
+  playerScore: number;
+  opponentScore: number;
 };
 
 export type HostYou = { role: "host" };
@@ -26,22 +49,32 @@ export type FanYou = {
   playerId: string;
   budget: number;
   squad: Squad;
+  inMatch: boolean;
+  sittingOut: boolean;
+  answered: boolean;
+  playerScore: number;
+  opponentScore: number;
+  lastOutcome: SituationOutcome | null;
 };
 
 export type ClaimHostMessage = { type: "claim-host"; token: string };
 export type JoinMessage = { type: "join"; playerId: string; nick: string };
 export type LeaveMessage = { type: "leave" };
 export type StartDraftMessage = { type: "start-draft" };
+export type StartMatchMessage = { type: "start-match" };
 export type PickMessage = { type: "pick"; playerId: string };
 export type UnpickMessage = { type: "unpick"; position: Position };
+export type AnswerMessage = { type: "answer"; choiceIndex: number };
 
 export type ClientMessage =
   | ClaimHostMessage
   | JoinMessage
   | LeaveMessage
   | StartDraftMessage
+  | StartMatchMessage
   | PickMessage
-  | UnpickMessage;
+  | UnpickMessage
+  | AnswerMessage;
 
 export type SnapshotMessage = {
   type: "snapshot";
@@ -52,6 +85,7 @@ export type SnapshotMessage = {
   draftEndsAt: number | null;
   serverNow: number;
   eliminatedCount: number;
+  match: SharedMatch | null;
   fans: EventFan[];
   you: HostYou | FanYou;
 };
@@ -64,7 +98,9 @@ export type ErrorCode =
   | "BAD_MESSAGE"
   | "NOT_HOST"
   | "NOT_DRAFT"
+  | "NOT_MATCH"
   | "BAD_PICK"
+  | "BAD_ANSWER"
   | "WRONG_PHASE"
   | "ELIMINATED";
 
@@ -116,7 +152,7 @@ function isPosition(value: unknown): value is Position {
 export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | null {
   if (typeof raw !== "string") return null;
   try {
-    const data = JSON.parse(raw) as Partial<ClientMessage>;
+    const data = JSON.parse(raw) as Partial<ClientMessage> & { choiceIndex?: unknown };
     if (!data || typeof data !== "object" || typeof data.type !== "string") return null;
     if (data.type === "claim-host" && typeof data.token === "string" && data.token.length > 0) {
       return { type: "claim-host", token: data.token };
@@ -131,11 +167,21 @@ export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | n
     }
     if (data.type === "leave") return { type: "leave" };
     if (data.type === "start-draft") return { type: "start-draft" };
+    if (data.type === "start-match") return { type: "start-match" };
     if (data.type === "pick" && typeof data.playerId === "string" && data.playerId.length > 0) {
       return { type: "pick", playerId: data.playerId };
     }
     if (data.type === "unpick" && isPosition(data.position)) {
       return { type: "unpick", position: data.position };
+    }
+    if (
+      data.type === "answer" &&
+      typeof data.choiceIndex === "number" &&
+      Number.isInteger(data.choiceIndex) &&
+      data.choiceIndex >= 0 &&
+      data.choiceIndex <= 2
+    ) {
+      return { type: "answer", choiceIndex: data.choiceIndex };
     }
     return null;
   } catch {

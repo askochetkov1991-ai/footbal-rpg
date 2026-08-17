@@ -151,7 +151,7 @@ export function LockedSquad({
             })}
           </ul>
         )}
-        <p className="text-sm text-gray-400">Матч стартует с пульта ведущего (P3).</p>
+        <p className="text-sm text-gray-400">Матч стартует с пульта ведущего. 15 секунд на выбор.</p>
         <Button variant="secondary" full onClick={onLeave}>
           Выйти
         </Button>
