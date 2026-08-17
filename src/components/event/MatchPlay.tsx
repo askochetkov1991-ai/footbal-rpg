@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import { Leaderboard, RankLine } from "./Leaderboard";
 import { DiceRoll } from "../match/DiceRoll";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { formatCountdown } from "../../event/useCountdown";
-import type { FanYou, SharedMatch } from "../../event/protocol";
+import type { EventFan, FanYou, SharedMatch } from "../../event/protocol";
 
 type Props = {
   nick: string;
@@ -11,19 +12,20 @@ type Props = {
   you: FanYou;
   match: SharedMatch;
   remainingMs: number | null;
+  fans?: EventFan[];
   onAnswer: (choiceIndex: number) => void;
   onLeave: () => void;
   phase: "match" | "result" | "match_over";
 };
 
-export function MatchPlay({ nick, code, you, match, remainingMs, onAnswer, onLeave, phase }: Props) {
+export function MatchPlay({ nick, code, you, match, remainingMs, fans, onAnswer, onLeave, phase }: Props) {
   const score = `${you.playerScore}:${you.opponentScore}`;
   const situation = match.situation;
   const timer = remainingMs != null ? formatCountdown(remainingMs) : null;
 
   if (!you.inMatch) {
     return (
-      <Shell nick={nick} code={code} score={score} onLeave={onLeave}>
+      <Shell nick={nick} code={code} score={score} rank={you.rank} fieldSize={you.fieldSize} points={you.points} onLeave={onLeave}>
         <p className="text-sm text-amber-300">Ты зашёл после драфта и в этот матч не попал. Жди следующий раунд.</p>
       </Shell>
     );
@@ -31,18 +33,23 @@ export function MatchPlay({ nick, code, you, match, remainingMs, onAnswer, onLea
 
   if (phase === "match_over") {
     return (
-      <Shell nick={nick} code={code} score={score} onLeave={onLeave}>
+      <Shell nick={nick} code={code} score={score} rank={you.rank} fieldSize={you.fieldSize} points={you.points} onLeave={onLeave}>
         <h2 className="text-xl font-bold">Матч закончен</h2>
         <p className="mt-2 text-3xl font-black text-orange-400">{score}</p>
-        <p className="mt-2 text-sm text-gray-400">Ждём новый драфт от ведущего. Состав не переносится.</p>
+        <p className="mt-2 text-sm text-gray-400">Ждём новый драфт или подиум от ведущего. Состав не переносится.</p>
         {you.lastOutcome ? <p className="mt-3 text-sm text-gray-300">{you.lastOutcome.description}</p> : null}
+        {fans && fans.length > 0 ? (
+          <div className="mt-4">
+            <Leaderboard fans={fans} highlightId={you.playerId} compact />
+          </div>
+        ) : null}
       </Shell>
     );
   }
 
   if (you.sittingOut && phase === "match") {
     return (
-      <Shell nick={nick} code={code} score={score} onLeave={onLeave}>
+      <Shell nick={nick} code={code} score={score} rank={you.rank} fieldSize={you.fieldSize} points={you.points} onLeave={onLeave}>
         <p className="text-sm text-amber-300">
           Время вышло — недоигранное в пользу соперника. Ты остаёшься в турнире и ждёшь конец матча.
         </p>
@@ -52,7 +59,7 @@ export function MatchPlay({ nick, code, you, match, remainingMs, onAnswer, onLea
   }
 
   return (
-    <Shell nick={nick} code={code} score={score} onLeave={onLeave}>
+    <Shell nick={nick} code={code} score={score} rank={you.rank} fieldSize={you.fieldSize} points={you.points} onLeave={onLeave}>
       <p className="text-xs text-gray-400">
         vs {match.opponentName} · ситуация {match.situationIndex + 1}/{match.situationCount}
       </p>
@@ -95,12 +102,18 @@ function Shell({
   nick,
   code,
   score,
+  rank,
+  fieldSize,
+  points,
   onLeave,
   children,
 }: {
   nick: string;
   code: string;
   score: string;
+  rank: number;
+  fieldSize: number;
+  points: number;
   onLeave: () => void;
   children: ReactNode;
 }) {
@@ -112,6 +125,7 @@ function Shell({
           <p className="text-sm text-gray-500">
             Комната <span className="tracking-widest text-orange-400">{code}</span>
           </p>
+          <RankLine rank={rank} fieldSize={fieldSize} points={points} />
         </div>
         <p className="text-3xl font-black">{score}</p>
       </div>

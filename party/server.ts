@@ -8,6 +8,7 @@ import {
   startingBudget,
   unpickPosition,
 } from "../src/event/draft";
+import { applyMatchToStanding, emptyStandings, withRanks, type Ranked, type StandingStats } from "../src/event/board";
 import { EVENT_LEAGUE, pickEventMatch, publicSituation, timeoutOutcome } from "../src/event/match";
 import {
   DRAFT_DURATION_MS,
@@ -33,7 +34,7 @@ type ConnState =
   | { role: "fan"; playerId: string }
   | { role: "eliminated"; playerId: string };
 
-type FanRecord = {
+type FanRecord = StandingStats & {
   id: string;
   nick: string;
   connected: boolean;
@@ -99,6 +100,7 @@ export default class EventRoom implements Party.Server {
     else if (parsed.type === "leave") this.leaveFan(sender);
     else if (parsed.type === "start-draft") this.startDraft(sender);
     else if (parsed.type === "start-match") this.startMatch(sender);
+    else if (parsed.type === "start-podium") this.startPodium(sender);
     else if (parsed.type === "pick") this.pick(sender, parsed.playerId);
     else if (parsed.type === "unpick") this.unpick(sender, parsed.position);
     else if (parsed.type === "answer") this.answer(sender, parsed.choiceIndex);
@@ -171,6 +173,7 @@ export default class EventRoom implements Party.Server {
         connectionId: connection.id,
         squad: emptySquad(),
         budget: startingBudget(),
+        ...emptyStandings(),
         ...emptyMatchStats(),
       });
       this.fanOrder.push(playerId);
@@ -197,7 +200,7 @@ export default class EventRoom implements Party.Server {
       this.sendError(connection, "NOT_HOST", "Только ведущий запускает драфт.");
       return;
     }
-    if (this.phase === "draft" || this.phase === "match" || this.phase === "result") {
+    if (this.phase === "draft" || this.phase === "match" || this.phase === "result" || this.phase === "podium") {
       this.sendError(connection, "WRONG_PHASE", "Сначала доиграй текущую фазу.");
       return;
     }
@@ -246,6 +249,19 @@ export default class EventRoom implements Party.Server {
     this.phase = "match";
     this.clearMatchTimers();
     this.choiceTimer = setTimeout(() => this.finishSituation(), SITUATION_DURATION_MS);
+    this.broadcastToAll();
+  }
+
+  private startPodium(connection: Party.Connection) {
+    if (getState(connection).role !== "host") {
+      this.sendError(connection, "NOT_HOST", "Только ведущий открывает подиум.");
+      return;
+    }
+    if (this.phase !== "match_over") {
+      this.sendError(connection, "WRONG_PHASE", "Подиум — после матча, по клику ведущего.");
+      return;
+    }
+    this.phase = "podium";
     this.broadcastToAll();
   }
 
@@ -395,6 +411,7 @@ export default class EventRoom implements Party.Server {
     const match = this.match;
     const last = match.situationIndex >= match.situationIds.length - 1;
     if (last || !this.hasActivePlayers()) {
+      this.recordMatchStandings();
       this.phase = "match_over";
       match.choiceEndsAt = null;
       match.resultEndsAt = null;
@@ -423,6 +440,13 @@ export default class EventRoom implements Party.Server {
 
   private hasActivePlayers(): boolean {
     return [...this.fans.values()].some((fan) => fan.inMatch && !fan.sittingOut);
+  }
+
+  private recordMatchStandings() {
+    for (const fan of this.fans.values()) {
+      if (!fan.inMatch) continue;
+      Object.assign(fan, applyMatchToStanding(fan, fan.playerScore, fan.opponentScore));
+    }
   }
 
   private eliminateFan(playerId: string) {
@@ -473,22 +497,34 @@ export default class EventRoom implements Party.Server {
     else this.broadcastToAll();
   }
 
-  private publicFans(): EventFan[] {
-    return this.fanOrder
+  private rankedFans(): Ranked<FanRecord>[] {
+    const rows = this.fanOrder
       .map((id) => this.fans.get(id))
-      .filter((fan): fan is FanRecord => Boolean(fan))
-      .map((fan) => ({
-        id: fan.id,
-        nick: fan.nick,
-        connected: fan.connected,
-        slotsFilled: slotsFilled(fan.squad),
-        squadComplete: isSquadComplete(fan.squad),
-        inMatch: fan.inMatch,
-        sittingOut: fan.sittingOut,
-        answered: fan.choiceIndex != null,
-        playerScore: fan.playerScore,
-        opponentScore: fan.opponentScore,
-      }));
+      .filter((fan): fan is FanRecord => Boolean(fan));
+    return withRanks(rows);
+  }
+
+  private publicFan(fan: Ranked<FanRecord>): EventFan {
+    return {
+      id: fan.id,
+      nick: fan.nick,
+      connected: fan.connected,
+      slotsFilled: slotsFilled(fan.squad),
+      squadComplete: isSquadComplete(fan.squad),
+      inMatch: fan.inMatch,
+      sittingOut: fan.sittingOut,
+      answered: fan.choiceIndex != null,
+      playerScore: fan.playerScore,
+      opponentScore: fan.opponentScore,
+      rank: fan.rank,
+      points: fan.points,
+      played: fan.played,
+      won: fan.won,
+      drawn: fan.drawn,
+      lost: fan.lost,
+      gf: fan.gf,
+      ga: fan.ga,
+    };
   }
 
   private publicMatch(): SharedMatch | null {
@@ -504,9 +540,9 @@ export default class EventRoom implements Party.Server {
     };
   }
 
-  private fanYou(playerId: string): FanYou {
-    const fan = this.fans.get(playerId);
-    const showOutcome = this.phase === "result" || this.phase === "match_over";
+  private fanYou(playerId: string, ranked: Ranked<FanRecord>[]): FanYou {
+    const fan = ranked.find((row) => row.id === playerId);
+    const showOutcome = this.phase === "result" || this.phase === "match_over" || this.phase === "podium";
     return {
       role: "fan",
       playerId,
@@ -518,10 +554,15 @@ export default class EventRoom implements Party.Server {
       playerScore: fan?.playerScore ?? 0,
       opponentScore: fan?.opponentScore ?? 0,
       lastOutcome: showOutcome ? (fan?.lastOutcome ?? null) : null,
+      rank: fan?.rank ?? ranked.length + 1,
+      fieldSize: ranked.length,
+      points: fan?.points ?? 0,
+      played: fan?.played ?? 0,
     };
   }
 
   private hostSnapshot(): Extract<ServerMessage, { type: "snapshot" }> {
+    const ranked = this.rankedFans();
     return {
       type: "snapshot",
       code: this.room.id.toUpperCase(),
@@ -532,19 +573,32 @@ export default class EventRoom implements Party.Server {
       serverNow: Date.now(),
       eliminatedCount: this.eliminated.size,
       match: this.publicMatch(),
-      fans: this.publicFans(),
+      fans: ranked.map((fan) => this.publicFan(fan)),
       you: { role: "host" },
     };
   }
 
   private broadcastToAll() {
-    const base = this.hostSnapshot();
+    const ranked = this.rankedFans();
+    const match = this.publicMatch();
+    const base = {
+      type: "snapshot" as const,
+      code: this.room.id.toUpperCase(),
+      hasHost: Boolean(this.hostConnectionId),
+      phase: this.phase,
+      round: this.round,
+      draftEndsAt: this.draftEndsAt,
+      serverNow: Date.now(),
+      eliminatedCount: this.eliminated.size,
+      match,
+      fans: ranked.map((fan) => this.publicFan(fan)),
+    };
     for (const connection of this.room.getConnections()) {
       const state = getState(connection);
       if (state.role === "host") {
-        this.send(connection, { ...base, you: { role: "host" }, match: this.publicMatch() });
+        this.send(connection, { ...base, you: { role: "host" } });
       } else if (state.role === "fan") {
-        this.send(connection, { ...base, you: this.fanYou(state.playerId), match: this.publicMatch() });
+        this.send(connection, { ...base, you: this.fanYou(state.playerId, ranked) });
       }
     }
   }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { RankLine } from "./Leaderboard";
 import { getPlayer } from "../../data/players";
 import { eventCatalog } from "../../event/draft";
 import { formatCountdown } from "../../event/useCountdown";
@@ -13,12 +14,16 @@ type Props = {
   budget: number;
   squad: Squad;
   remainingMs: number;
+  rank?: number;
+  fieldSize?: number;
+  points?: number;
+  played?: number;
   onPick: (playerId: string) => void;
   onUnpick: (position: Position) => void;
   onLeave: () => void;
 };
 
-export function DraftBoard({ nick, code, budget, squad, remainingMs, onPick, onUnpick, onLeave }: Props) {
+export function DraftBoard({ nick, code, budget, squad, remainingMs, rank, fieldSize, points, played, onPick, onUnpick, onLeave }: Props) {
   const [position, setPosition] = useState<Position | "all">("all");
   const [affordable, setAffordable] = useState(false);
   const catalog = useMemo(() => eventCatalog(), []);
@@ -38,6 +43,9 @@ export function DraftBoard({ nick, code, budget, squad, remainingMs, onPick, onU
             <p className="text-sm text-gray-500">
               Комната <span className="tracking-widest text-orange-400">{code}</span>
             </p>
+            {rank != null && fieldSize != null && points != null && (played ?? 0) > 0 ? (
+              <RankLine rank={rank} fieldSize={fieldSize} points={points} />
+            ) : null}
           </div>
           <p className={`font-mono text-4xl font-black ${remainingMs <= 10_000 ? "text-red-400" : "text-orange-400"}`}>
             {formatCountdown(remainingMs)}
@@ -119,12 +127,20 @@ export function LockedSquad({
   code,
   squad,
   lateJoin,
+  rank,
+  fieldSize,
+  points,
+  played,
   onLeave,
 }: {
   nick: string;
   code: string;
   squad: Squad;
   lateJoin: boolean;
+  rank?: number;
+  fieldSize?: number;
+  points?: number;
+  played?: number;
   onLeave: () => void;
 }) {
   return (
@@ -136,6 +152,9 @@ export function LockedSquad({
         <p className="text-sm text-gray-400">
           Комната <span className="tracking-widest text-orange-400">{code}</span>
         </p>
+        {rank != null && fieldSize != null && points != null && (played ?? 0) > 0 ? (
+          <RankLine rank={rank} fieldSize={fieldSize} points={points} />
+        ) : null}
         {lateJoin ? (
           <p className="text-sm text-amber-300">Ты зашёл после драфта. Жди следующий раунд — состав не переносится.</p>
         ) : (

@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { DraftBoard, LockedSquad } from "../../components/event/DraftBoard";
+import { Leaderboard } from "../../components/event/Leaderboard";
 import { MatchPlay } from "../../components/event/MatchPlay";
+import { FanPodium } from "../../components/event/Podium";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { isSquadComplete } from "../../event/draft";
@@ -13,6 +15,7 @@ import {
   normalizeCode,
   normalizeNick,
   ROOM_CODE_LENGTH,
+  type EventFan,
   type EventPhase,
   type FanYou,
   type SharedMatch,
@@ -138,6 +141,7 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
   const [eliminated, setEliminated] = useState(false);
   const [phase, setPhase] = useState<EventPhase>("lobby");
   const [you, setYou] = useState<FanYou | null>(null);
+  const [fans, setFans] = useState<EventFan[]>([]);
   const [draftEndsAt, setDraftEndsAt] = useState<number | null>(null);
   const [serverNow, setServerNow] = useState<number | null>(null);
   const [match, setMatch] = useState<SharedMatch | null>(null);
@@ -149,12 +153,14 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
     setDraftEndsAt(message.draftEndsAt);
     setServerNow(message.serverNow);
     setMatch(message.match);
+    setFans(message.fans);
     if (message.you.role === "fan") setYou(message.you);
     if (message.phase === "draft") setStatus("Набери 4 слота до конца таймера");
     else if (message.phase === "ready") setStatus("Состав зафиксирован. Ждём матч");
     else if (message.phase === "match") setStatus("Выбери действие");
     else if (message.phase === "result") setStatus("Результат ситуации");
-    else if (message.phase === "match_over") setStatus("Матч закончен. Ждём новый драфт");
+    else if (message.phase === "match_over") setStatus("Матч закончен. Ждём новый драфт или подиум");
+    else if (message.phase === "podium") setStatus("Турнир окончен");
     else setStatus(message.hasHost ? "Ждём старт от ведущего" : "Ведущий переподключается");
   };
 
@@ -230,6 +236,31 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
     );
   }
 
+  if (phase === "podium" && you) {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-2xl flex-col bg-[#0B0F19] px-4 py-8 text-white">
+        <p className="text-xs uppercase tracking-wide text-gray-400">Турнир болельщиков</p>
+        <h1 className="mt-1 text-2xl font-bold">Финал</h1>
+        <div className="mt-6">
+          <FanPodium
+            playerId={you.playerId}
+            nick={session.nick}
+            fans={fans}
+            rank={you.rank}
+            fieldSize={you.fieldSize}
+            points={you.points}
+          />
+        </div>
+        <div className="mt-6">
+          <Leaderboard fans={fans} highlightId={you.playerId} compact />
+        </div>
+        <Button variant="secondary" className="mt-6" onClick={leave}>
+          Выйти
+        </Button>
+      </div>
+    );
+  }
+
   if ((phase === "match" || phase === "result" || phase === "match_over") && you && match) {
     return (
       <MatchPlay
@@ -238,6 +269,7 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
         you={you}
         match={match}
         remainingMs={remainingMs}
+        fans={fans}
         phase={phase}
         onAnswer={(choiceIndex) => send({ type: "answer", choiceIndex })}
         onLeave={leave}
@@ -253,6 +285,10 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
         budget={you.budget}
         squad={you.squad}
         remainingMs={remainingMs ?? 0}
+        rank={you.rank}
+        fieldSize={you.fieldSize}
+        points={you.points}
+        played={you.played}
         onPick={(playerId) => send({ type: "pick", playerId })}
         onUnpick={(position) => send({ type: "unpick", position })}
         onLeave={leave}
@@ -267,6 +303,10 @@ function FanLobby({ session, onLeave }: { session: FanSession; onLeave: () => vo
         code={session.code}
         squad={you.squad}
         lateJoin={!isSquadComplete(you.squad)}
+        rank={you.rank}
+        fieldSize={you.fieldSize}
+        points={you.points}
+        played={you.played}
         onLeave={leave}
       />
     );

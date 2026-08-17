@@ -11,8 +11,10 @@ export const SITUATION_DURATION_MS = 15_000;
 export const RESULT_PAUSE_MS = 5_000;
 export const EVENT_BUDGET = 20;
 
-export type EventPhase = "lobby" | "draft" | "ready" | "match" | "result" | "match_over";
+export type EventPhase = "lobby" | "draft" | "ready" | "match" | "result" | "match_over" | "podium";
 export type EliminatedReason = "no-squad";
+export const BOARD_TOP = 10;
+export const PODIUM_SIZE = 3;
 
 export type PublicSituation = {
   id: string;
@@ -41,6 +43,14 @@ export type EventFan = {
   answered: boolean;
   playerScore: number;
   opponentScore: number;
+  rank: number;
+  points: number;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  gf: number;
+  ga: number;
 };
 
 export type HostYou = { role: "host" };
@@ -55,6 +65,10 @@ export type FanYou = {
   playerScore: number;
   opponentScore: number;
   lastOutcome: SituationOutcome | null;
+  rank: number;
+  fieldSize: number;
+  points: number;
+  played: number;
 };
 
 export type ClaimHostMessage = { type: "claim-host"; token: string };
@@ -62,6 +76,7 @@ export type JoinMessage = { type: "join"; playerId: string; nick: string };
 export type LeaveMessage = { type: "leave" };
 export type StartDraftMessage = { type: "start-draft" };
 export type StartMatchMessage = { type: "start-match" };
+export type StartPodiumMessage = { type: "start-podium" };
 export type PickMessage = { type: "pick"; playerId: string };
 export type UnpickMessage = { type: "unpick"; position: Position };
 export type AnswerMessage = { type: "answer"; choiceIndex: number };
@@ -72,6 +87,7 @@ export type ClientMessage =
   | LeaveMessage
   | StartDraftMessage
   | StartMatchMessage
+  | StartPodiumMessage
   | PickMessage
   | UnpickMessage
   | AnswerMessage;
@@ -168,6 +184,7 @@ export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | n
     if (data.type === "leave") return { type: "leave" };
     if (data.type === "start-draft") return { type: "start-draft" };
     if (data.type === "start-match") return { type: "start-match" };
+    if (data.type === "start-podium") return { type: "start-podium" };
     if (data.type === "pick" && typeof data.playerId === "string" && data.playerId.length > 0) {
       return { type: "pick", playerId: data.playerId };
     }
